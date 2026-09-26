@@ -34,6 +34,19 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 健康检查：`curl http://127.0.0.1:8000/api/health`
 
+### 启动链路（环境校验 → 数据准备 → 启动检查）
+
+`./run.sh` 在启动 uvicorn 前会先执行 `python -m app.bootstrap`（也可用 `make check`
+单独运行），按顺序完成三步，任一步失败都会打印具体原因并以非 0 退出，服务不会带病启动：
+
+1. **环境校验**：`APP_ENV`、`APP_PORT`、`APP_ALLOWED_ORIGINS`、分页配置等是否合法，
+   一次列出全部问题；可用变量见根目录 `.env.example`。
+2. **数据准备**：幂等灌入 `app/seed.py` 示例数据，只补缺失 id，**不覆盖**已有单据和
+   列表结果；灌入前先校验种子库存口径（道具的 `status` / 「使用状态」 / pending / abnormal）。
+3. **启动检查**：关键路由是否注册、道具借出/归还/损毁流转口径是否自洽、库存数据是否合法。
+
+整条链路只读 + 幂等补数，修复后可安全反复重跑。
+
 ### 前端
 
 ```bash
@@ -76,3 +89,6 @@ npm run dev
   `backend/app/routers/<模块>.py`，业务规则在 `backend/app/services/<模块>.py`。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+- 道具库存口径只有一个出处 `app/services/prop.py`：在库 → 已借出 → 已归还 → 已损毁。
+  在库可借出、已借出可归还/损毁、已归还/已损毁为终态；「使用状态」是 `status` 的读时
+  镜像，按钮以后端下发的 `actions` 为准，统计卡取自 `/api/prop/stats`，前端不再各写一份。
