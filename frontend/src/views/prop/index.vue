@@ -2,7 +2,7 @@
   <section class="page" data-module="prop">
     <header class="page-head">
       <div>
-        <h2>道具管理管理</h2>
+        <h2>道具管理</h2>
         <p class="page-desc">维护道具，围绕道具编号、道具名称、道具类别、所属场次做登记、筛选与状态流转。</p>
       </div>
       <div class="page-actions">
@@ -19,9 +19,16 @@
     </div>
 
     <form class="filter-bar" @submit.prevent="reload">
-      <label v-for="field in filterFields" :key="field" class="filter-item">
-        <span>{{ field }}</span>
-        <input v-model="filters[field]" :placeholder="`按${field}检索`" />
+      <label class="filter-item">
+        <span>道具编号</span>
+        <input v-model="filters.keyword" placeholder="按道具编号检索" />
+      </label>
+      <label class="filter-item">
+        <span>使用状态</span>
+        <select v-model="filters.status">
+          <option value="">全部状态</option>
+          <option v-for="status in statuses" :key="status" :value="status">{{ status }}</option>
+        </select>
       </label>
       <button class="btn" type="submit">查询</button>
       <button class="btn ghost" type="button" @click="resetFilters">重置条件</button>
@@ -39,7 +46,7 @@
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
           <td class="row-actions">
             <button
-              v-for="action in actions"
+              v-for="action in row.available_actions ?? []"
               :key="action"
               class="link"
               type="button"
@@ -47,6 +54,7 @@
             >
               {{ action }}
             </button>
+            <span v-if="!(row.available_actions ?? []).length">—</span>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -65,24 +73,23 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import { request } from '@/api/client'
+import { fetchJson, request } from '@/api/client'
 
-type Row = Record<string, string | number | null>
+type Row = Record<string, string | number | null> & { available_actions?: string[] }
+type StatItem = { label: string; value: number }
 
 const ENDPOINT = '/api/prop'
 const columns = ["道具编号", "道具名称", "道具类别", "所属场次", "保管人员", "采购单价", "使用状态", "归还日期"]
-const actions = ["借出道具", "归还道具", "登记损毁"]
-const statuses = ["在库", "已借出", "已归还", "已损毁"]
-const stats = [{"label": "在库道具", "value": 0}, {"label": "已借出道具", "value": 0}, {"label": "待归还道具", "value": 0}]
 
 const rows = ref<Row[]>([])
 const total = ref(0)
+const stats = ref<StatItem[]>([])
+const statuses = ref<string[]>([])
 const errorMessage = ref('')
-const filters = ref<Record<string, string>>({})
-const filterFields = columns.slice(0, 3)
+const filters = ref({ keyword: '', status: '' })
 
 function resetFilters() {
-  filters.value = {}
+  filters.value = { keyword: '', status: '' }
   void reload()
 }
 
@@ -101,8 +108,9 @@ async function runAction(action: string, row: Row) {
       method: 'POST',
       body: JSON.stringify({ action }),
     })
-    if (!response.ok) {
-      throw new Error('道具管理动作未生效，请稍后重试')
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.message ?? `道具管理动作未生效（接口返回 ${response.status}）`)
     }
     await reload()
   } catch (error) {
@@ -112,19 +120,33 @@ async function runAction(action: string, row: Row) {
 
 async function reload() {
   errorMessage.value = ''
-  const query = new URLSearchParams(filters.value as Record<string, string>).toString()
+  const query = new URLSearchParams()
+  if (filters.value.keyword) query.set('keyword', filters.value.keyword)
+  if (filters.value.status) query.set('status', filters.value.status)
   try {
-    const response = await request(`${ENDPOINT}?${query}`)
-    if (!response.ok) {
-      throw new Error('道具列表读取失败')
-    }
-    const payload = await response.json()
-    rows.value = payload.items ?? []
-    total.value = payload.total ?? rows.value.length
+    const [listPayload, statsPayload] = await Promise.all([
+      fetchJson<{ items?: Row[]; total?: number }>(`${ENDPOINT}?${query.toString()}`),
+      fetchJson<{ stats?: StatItem[] }>(`${ENDPOINT}/stats`),
+    ])
+    rows.value = listPayload.items ?? []
+    total.value = listPayload.total ?? rows.value.length
+    stats.value = statsPayload.stats ?? []
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '道具管理列表读取失败'
   }
 }
 
-onMounted(reload)
+async function loadMeta() {
+  try {
+    const meta = await fetchJson<{ statuses?: string[] }>(`${ENDPOINT}/meta`)
+    statuses.value = meta.statuses ?? []
+  } catch {
+    statuses.value = []
+  }
+}
+
+onMounted(() => {
+  void loadMeta()
+  void reload()
+})
 </script>

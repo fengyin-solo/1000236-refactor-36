@@ -235,7 +235,7 @@ SEED_ROWS: dict[str, list[dict[str, Any]]] = {
  {'id': 2,
   'status': '已借出',
   'pending': True,
-  'abnormal': True,
+  'abnormal': False,
   '道具编号': 'PROP-0002',
   '道具名称': '道具管理样例2',
   '道具类别': '道具管理样例2',

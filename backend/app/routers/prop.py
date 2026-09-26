@@ -1,10 +1,15 @@
-"""道具管理接口：维护道具，覆盖借出道具、归还道具、登记损毁等动作。"""
+"""道具管理接口：维护道具，覆盖借出道具、归还道具、登记损毁等动作。
+
+状态序列与动作流转规则统一来自 app.rules.PROP_RULES，路由层不做业务判断。
+注意：/meta、/stats、/export 必须声明在 /{entry_id} 之前，否则会被详情路由截获。
+"""
 from __future__ import annotations
 
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app.rules import PROP_RULES
 from app.schemas import ActionResult, EntryPayload, PageResult
 from app.services.prop import PropService
 
@@ -13,7 +18,33 @@ router = APIRouter(prefix="/api/prop", tags=["道具管理"])
 service = PropService()
 
 LIST_FIELDS = ["道具编号", "道具名称", "道具类别", "所属场次", "保管人员", "采购单价", "使用状态", "归还日期"]
-STATUSES = ["在库", "已借出", "已归还", "已损毁"]
+
+
+@router.get("/meta")
+def get_meta() -> dict[str, Any]:
+    """规则元数据：状态序列、各动作的来源/目标状态，页面据此渲染，不再硬编码。"""
+    return {
+        "module": "prop",
+        "statuses": list(PROP_RULES.status_order),
+        "actions": [
+            {"name": name, "target": rule.target, "sources": list(rule.sources)}
+            for name, rule in PROP_RULES.actions.items()
+        ],
+        "status_labels": dict(PROP_RULES.status_labels),
+    }
+
+
+@router.get("/stats")
+def get_stats() -> dict[str, Any]:
+    """库存统计：在库（可借出）、已借出（待归还）等口径与列表、动作判定一致。"""
+    return {"module": "prop", "stats": service.stats()}
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出道具管理清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "prop", "total": total, "items": items}
 
 
 @router.get("", response_model=PageResult[dict])
@@ -56,10 +87,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出道具管理清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "prop", "total": total, "items": items}

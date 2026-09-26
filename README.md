@@ -17,7 +17,9 @@
 ├── backend/                  FastAPI（Python） 后端
 │   ├── app/routers/          每个业务模块一组接口
 │   ├── app/services/         业务规则与状态流转
-│   └── app/store.py          内存数据仓库与示例数据
+│   ├── app/rules.py          道具等模块的统一流转规则与库存口径
+│   ├── app/store.py          JSON 持久化数据仓库（data/store.json）
+│   └── scripts/              数据准备、环境校验、启动检查
 ├── .gitignore
 └── docker-compose.yml
 ```
@@ -31,6 +33,17 @@ cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ./run.sh
 ```
+
+`run.sh` 会按顺序执行三步，任一步失败都会打印原因并以非零码退出，修复后可直接重跑：
+
+1. **数据准备**（`scripts/prepare_data.py`）：数据文件不存在时按示例数据初始化；
+   已存在时只补缺失模块，已有单据不会被覆盖；道具单据逐条校验状态合法性。
+2. **环境校验**（`scripts/check_env.py`）：Python 版本、依赖、数据目录可写、端口可用。
+3. **启动检查**（`scripts/smoke_check.py`）：服务起来后验证健康检查、道具规则元数据、
+   库存统计与列表总数口径一致；全程只读，可反复重跑。
+
+数据默认持久化在 `backend/data/store.json`（可用 `APP_DATA_FILE` 覆盖，置空为纯内存模式）。
+也可以用 `make prepare` / `make check` / `make smoke` 单独执行某一步。
 
 健康检查：`curl http://127.0.0.1:8000/api/health`
 
@@ -74,5 +87,8 @@ npm run dev
 
 - 每个模块的前端页面在 `frontend/src/views/<模块>/index.vue`，后端接口在
   `backend/app/routers/<模块>.py`，业务规则在 `backend/app/services/<模块>.py`。
+- 道具模块的借出/归还/损毁规则统一维护在 `backend/app/rules.py`（`PROP_RULES`），
+  服务校验、路由元数据（`/api/prop/meta`）、库存统计（`/api/prop/stats`）与页面
+  按钮都从这一份推导，页面不再各自硬编码状态与动作。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
